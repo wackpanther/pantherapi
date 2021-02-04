@@ -19,6 +19,8 @@ namespace PantherAPI.Controllers
     {
         string Channel;
         string RequestUser;
+        int UserPriority = 10;
+
         ChannelQueueSettings settings;
 
         public QueueController()
@@ -53,9 +55,19 @@ namespace PantherAPI.Controllers
         /// <param name="Remove">(optional) A flag that tells the system to remove the players from queue after looking them up</param>
         /// <returns>A <see cref="JsonResult"/> containing a list of <see cref="QueuedUser"/> in the order they should be played</returns>
         [HttpGet]
-        public JsonResult NextInQueue([FromQuery] string Position = "Any", [FromQuery] string Game = "Any", [FromQuery] int Limit = 5, [FromQuery] bool Remove = false)
+        public JsonResult NextInQueue([FromQuery] string Position = "Any", [FromQuery] string Game = null, [FromQuery] int? Limit = 5, [FromQuery] bool Remove = false)
         {
             Setup();
+
+            Game ??= settings.DefaultGame ?? "Any";
+
+            if (!Limit.HasValue && settings.Games.FirstOrDefault(g => g.Name == Game) is GameSettings g)
+            {
+                Limit = g.DefaultSquadSize;
+            }
+
+            Limit ??= settings.DefaultLimit;
+
             List<QueuedUser> queue = GetQueue(Channel, Game, Limit, Remove);
 
             return Json(queue);
@@ -69,10 +81,14 @@ namespace PantherAPI.Controllers
         /// <returns><see cref="string"/> describing the user's position in queue</returns>
         [HttpGet]
         [Route("UserPosition")]
-        public string UserPosition([FromQuery] string User = null, [FromQuery] string Game = "Any")
+        public string UserPosition([FromQuery] string User = null, [FromQuery] string Game = null)
         {
             Setup();
+            
             User ??= RequestUser;
+
+            Game ??= settings.DefaultGame ?? "Any";
+
             return string.Format("{0} is currently {1} in queue", User, GetUserPositionInQueue(User, Channel, Game).Stringify("next"));
         }
 
@@ -133,6 +149,7 @@ namespace PantherAPI.Controllers
                         return string.Format("The new queue requires an in-game name the first time you queue up, {0}. Try the command again, but include your in-game name.",User);
                     }
                     QueuedUser newUser = new QueuedUser(User, Game, Position, InGameName);
+                    newUser.Priority = Priority;
                     GameQueue.Insert(newUser);
                     GameQueue.EnsureIndex(u => u.Username);
                     return string.Format("{0} is now in the {1} queue!",newUser.Username, newUser.Game == "Any" ? "game" : newUser.Game);
@@ -149,10 +166,11 @@ namespace PantherAPI.Controllers
         /// <returns></returns>
         [HttpGet]
         [Route("Remove")]
-        public string DeQueueUser([FromQuery] string User = null, [FromQuery] string Game = "Any", [FromQuery] bool Skip = false)
+        public string DeQueueUser([FromQuery] string User = null, [FromQuery] string Game = null, [FromQuery] bool Skip = false)
         {
             Setup();
             User ??= RequestUser;
+            Game ??= settings.DefaultGame ?? "Any";
             using (var db = new LiteDatabase(@"/pantherttv/gamequeue.db"))
             {
                 var qcollection = db.GetCollection<QueuedUser>(string.Format("gamequeue_{0}", Channel));
@@ -177,9 +195,10 @@ namespace PantherAPI.Controllers
         /// <returns>A message indicating whether the attempt was successful</returns>
         [HttpGet]
         [Route("Clear")]
-        public string ClearQueue([FromQuery] string Game = "Any")
+        public string ClearQueue([FromQuery] string Game = null)
         {
             Setup();
+            Game ??= settings.DefaultGame ?? "Any";
             using (var db = new LiteDatabase(@"/pantherttv/gamequeue.db"))
             {
                 var qcollection = db.GetCollection<QueuedUser>(string.Format("gamequeue_{0}", Channel));

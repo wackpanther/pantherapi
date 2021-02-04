@@ -11,7 +11,7 @@ namespace PantherAPI
     {
         public static string Stringify(this int number, string ZeroMsg)
         {
-            if (number == 0)
+            if (number <= 0)
             {
                 return ZeroMsg;
             }
